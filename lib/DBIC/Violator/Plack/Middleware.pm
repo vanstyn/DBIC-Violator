@@ -6,16 +6,20 @@ use warnings;
 
 # ABSTRACT: Plack Middleware hook for DBIC::Violator
 
+use Plack::Util;
+use DBIC::Violator;
+
+use RapidApp::Util ':all';
+
 sub call {
   my ($self, $env) = @_;
-
-  # Start of request
-
-  my $ret = $self->app->($env);
   
-  # End of request
+  my $Collector = DBIC::Violator->collector;
   
-  $ret
+  return $Collector 
+    ? $Collector->_middleware_call_coderef->($self,$env)
+    : $self->app->($env)
+  
 }
 
 
