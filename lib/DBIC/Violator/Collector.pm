@@ -8,6 +8,7 @@ use warnings;
 use Moo;
 use Types::Standard qw(:all);
 use Time::HiRes qw(gettimeofday tv_interval);
+use Path::Class qw(file dir);
 
 require SQL::Abstract::Tree;
 use DBI;
@@ -19,7 +20,27 @@ use Plack::Response;
 use RapidApp::Util ':all';
 
 
-has 'log_db_file', is => 'ro', isa => Str, required => 1;
+has 'log_db_dir',      is => 'ro', isa => Maybe[Str], default => sub { undef };
+has 'log_db_file_pfx', is => 'ro', isa => Str,        default => sub { 'dbic-violator-log_' };
+has 'log_db_file_sfx', is => 'ro', isa => Str,        default => sub { '.db' };
+
+has 'log_db_file', is => 'ro', isa => Str, lazy => 1, default => sub {
+  my $self = shift;
+  
+  my $dir = $self->log_db_dir or die "DBIC::Violator::Collector: Must supply either log_db_file or log_db_dir";
+  -d $dir or die "DBIC::Violator::Collector: log_db_dir '$dir' not exist or not a directory";
+  
+  my $Dir = dir($dir);
+  
+  my $pfx = $self->log_db_file_pfx;
+  my $sfx = $self->log_db_file_sfx;
+  my $num = 1;
+  
+  my $fn = join('',$pfx,$num,$sfx);
+  $fn = join('',$pfx,++$num,$sfx) while (-e $Dir->file($fn));
+  
+  return $Dir->file($fn)->absolute->stringify;
+}; 
 
 has 'sqlat', is => 'ro', default => sub {
   SQL::Abstract::Tree->new({
@@ -260,6 +281,13 @@ sub _format_for_trace {
 
 
 sub _sqlite_ddl {q~
+DROP TABLE IF EXISTS [db_info];
+CREATE TABLE [db_info] (
+  [name]  varchar(64) primary key not null,
+  [value] varchar(1024) default null
+);
+INSERT INTO [db_info] VALUES ('schema_deploy_timestamp', datetime('now'));
+
 DROP TABLE IF EXISTS [request];
 CREATE TABLE [request] (
   [id]                INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,

@@ -39,9 +39,9 @@ sub _init_attach_collector {
   $INITIALIZED = 1; # one and only one shot - we get it here and now or never
   
   # Currently only enable via env var:
-  my $fn = $ENV{DBIC_VIOLATOR_DB_FILE} or return;
+  my $dn = $ENV{DBIC_VIOLATOR_DB_DIR} or return;
   
-  my $Collector = DBIC::Violator::Collector->new({ log_db_file => $fn });
+  my $Collector = DBIC::Violator::Collector->new({ log_db_dir => $dn });
   
   my $package = 'DBIx::Class::Storage::DBI';
   $pkg->__attach_around_sub($package, '_execute'     => $Collector->_execute_around_coderef);
