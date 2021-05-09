@@ -45,6 +45,8 @@ sub _middleware_call_coderef {
     my ($mw, $env) = @_;
     my $start = [gettimeofday];
     
+    $self->{_current_request_row_id} = undef;
+    
     my $req = Plack::Request->new($env);
   
     my $reqRow = {
@@ -57,12 +59,12 @@ sub _middleware_call_coderef {
       referer      => scalar $req->referer
     };
     
-    scream($reqRow);
-    
     my $id = $self->_do_insert_request_row($reqRow);
     
-    local $self->{_current_request_row_id} = $id;
-
+    # Not able to localize this because of middleware internals, it goes
+    # out of scope before we can use it:
+    $self->{_current_request_row_id} = $id;
+    
     my $res = $mw->app->($env);
     
     return Plack::Util::response_cb($res, sub {
@@ -70,18 +72,19 @@ sub _middleware_call_coderef {
       my $Res = Plack::Response->new(@$res);
  
       my $end = [gettimeofday];
-    
-      $self->_do_update_request_row_by_id( $id => {
+      
+      my $updates = {
         status            => scalar $Res->status,
         res_length        => scalar $Res->content_length,
         res_content_type  => scalar $Res->content_type,
         end_ts            => scalar $end->[0],
         elapsed_ms        => scalar int(1000 * tv_interval($start,$end))
-      });
-        
+      };
+      
+      $self->{_current_request_row_id} = undef;
+      $self->_do_update_request_row_by_id( $id => $updates );
     });
   }
-
 }
 
 
