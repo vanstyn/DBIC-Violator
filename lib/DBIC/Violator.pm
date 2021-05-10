@@ -8,8 +8,9 @@ use warnings;
 use DBIC::Violator::Collector;
 require DBIx::Class::Storage::DBI;
 use Class::MOP::Class;
+use Try::Tiny;
 
-our $VERSION = '0.002';
+our $VERSION = '0.003';
 
 our $INITIALIZED = 0;
 our $COLLECTOR_INSTANCE = undef;
@@ -18,9 +19,17 @@ use RapidApp::Util ':all';
 
 sub import {
   my $pkg = shift;
+  my %params = @_;
+  
+  my $caller = caller;
+  
+  $params{application_name} ||= do {
+    my $ver = try{$caller->VERSION} || eval "$caller::VERSION";
+    $ver ? join(' v',$caller,$ver) : $caller
+  };
   
   #initialize immediately on use:
-  $pkg->collector;
+  $pkg->collector(\%params);
   
   return 1;
 }
@@ -30,11 +39,12 @@ sub import {
 sub collector {
   my $pkg = shift;
   return $COLLECTOR_INSTANCE if ($INITIALIZED);
-  $COLLECTOR_INSTANCE //= $pkg->_init_attach_collector
+  $COLLECTOR_INSTANCE //= $pkg->_init_attach_collector(@_)
 }
 
 sub _init_attach_collector {
   my $pkg = shift;
+  my $params = shift || {};
   return $COLLECTOR_INSTANCE if ($INITIALIZED);
   
   $INITIALIZED = 1; # one and only one shot - we get it here and now or never
@@ -42,7 +52,7 @@ sub _init_attach_collector {
   # Currently only enable via env var:
   my $dn = $ENV{DBIC_VIOLATOR_DB_DIR} or return;
   
-  my $Collector = DBIC::Violator::Collector->new({ log_db_dir => $dn });
+  my $Collector = DBIC::Violator::Collector->new({ log_db_dir => $dn, %$params });
   
   my $package = 'DBIx::Class::Storage::DBI';
   $pkg->__attach_around_sub($package, '_execute'     => $Collector->_execute_around_coderef);

@@ -19,6 +19,7 @@ use Plack::Response;
 
 use RapidApp::Util ':all';
 
+has 'application_name', is => 'ro', isa => Maybe[Str], default => sub { undef };
 
 has 'log_db_dir',      is => 'ro', isa => Maybe[Str], default => sub { undef };
 has 'log_db_file_pfx', is => 'ro', isa => Str,        default => sub { 'dbic-violator-log_' };
@@ -36,8 +37,8 @@ has 'log_db_file', is => 'ro', isa => Str, lazy => 1, default => sub {
   my $sfx = $self->log_db_file_sfx;
   my $num = 1;
   
-  my $fn = join('',$pfx,$num,$sfx);
-  $fn = join('',$pfx,++$num,$sfx) while (-e $Dir->file($fn));
+  my $fn = join('',$pfx,sprintf('%06s',$num),$sfx);
+  $fn = join('',$pfx,sprintf('%06s',++$num),$sfx) while (-e $Dir->file($fn));
   
   return $Dir->file($fn)->absolute->stringify;
 }; 
@@ -294,6 +295,7 @@ sub _sqlite_ddl {
   # Seed the auto inc based on the date/time in order to make it easier
   # to merge databases later on -- this should mostly prevent PK overlap
   my $seed_autoinc = time - 1620604718;
+  my $app_name = $self->application_name || 'unknown';
 
 join('',
 q~
@@ -302,8 +304,11 @@ CREATE TABLE [db_info] (
   [value] varchar(1024) default null
 );
 INSERT INTO [db_info] VALUES ('schema_deploy_datetime', datetime('now'));
+INSERT INTO [db_info] VALUES ('application','~,$app_name,q~');
 INSERT INTO [db_info] VALUES ('DBIC::Violator::VERSION','~,$DBIC::Violator::VERSION,q~');
 INSERT INTO [db_info] VALUES ('seed_autoinc','~,$seed_autoinc,q~');
+INSERT INTO [db_info] VALUES ('db_filename','~,file($self->log_db_file)->basename,q~');
+INSERT INTO [db_info] VALUES ('db_directory','~,file($self->log_db_file)->parent->absolute,q~');
 
 CREATE TABLE [request] (
   [id]                INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
