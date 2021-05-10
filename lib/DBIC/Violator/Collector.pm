@@ -11,7 +11,7 @@ use Time::HiRes qw(gettimeofday tv_interval);
 use Path::Class qw(file dir);
 
 require SQL::Abstract::Tree;
-use DBI;
+use DBIC::Violator::Collector::DbConn;
 
 use Plack::Util;
 use Plack::Request;
@@ -19,29 +19,18 @@ use Plack::Response;
 
 use RapidApp::Util ':all';
 
+has 'DbConn', is => 'ro', lazy => 1, clearer => 1, default => sub {
+  my $self = shift;
+  DBIC::Violator::Collector::DbConn->new({ Collector => $self })
+}, isa => InstanceOf['DBIC::Violator::Collector::DbConn'];
+
 has 'application_name', is => 'ro', isa => Maybe[Str], default => sub { undef };
 
 has 'log_db_dir',      is => 'ro', isa => Maybe[Str], default => sub { undef };
+has 'log_db_file',     is => 'ro', isa => Maybe[Str], default => sub { undef };
 has 'log_db_file_pfx', is => 'ro', isa => Str,        default => sub { 'dbic-violator-log_' };
 has 'log_db_file_sfx', is => 'ro', isa => Str,        default => sub { '.db' };
 
-has 'log_db_file', is => 'ro', isa => Str, lazy => 1, default => sub {
-  my $self = shift;
-  
-  my $dir = $self->log_db_dir or die "DBIC::Violator::Collector: Must supply either log_db_file or log_db_dir";
-  -d $dir or die "DBIC::Violator::Collector: log_db_dir '$dir' not exist or not a directory";
-  
-  my $Dir = dir($dir);
-  
-  my $pfx = $self->log_db_file_pfx;
-  my $sfx = $self->log_db_file_sfx;
-  my $num = 1;
-  
-  my $fn = join('',$pfx,sprintf('%06s',$num),$sfx);
-  $fn = join('',$pfx,sprintf('%06s',++$num),$sfx) while (-e $Dir->file($fn));
-  
-  return $Dir->file($fn)->absolute->stringify;
-}; 
 
 has 'sqlat', is => 'ro', default => sub {
   SQL::Abstract::Tree->new({
@@ -56,11 +45,54 @@ has 'sqlat', is => 'ro', default => sub {
 has 'username_from_res_header', is => 'rw', isa => Maybe[Str], default => sub { undef };
 
 
-
 sub BUILD {
   my $self = shift;
-  $self->logDbh;
+  $self->DbConn;
 }
+
+
+has '__pause_until_epoch', is => 'rw', isa => Maybe[Int], default => sub { undef };
+
+sub pause_for {
+  my ($self, $secs) = @_;
+  $self->__pause_until_epoch(time + $secs);
+}
+
+
+sub paused {
+  my $self = shift;
+  
+  if(my $epoch = $self->__pause_until_epoch) {
+    if($epoch >= time) {
+      return 1;
+    }
+    else {
+      $self->__pause_until_epoch(undef);
+    }
+  }
+  
+  $self->logDbh ? 0 : 1
+}
+
+sub logDbh {
+  my $self = shift;
+   
+  if ($self->DbConn->invalid) {
+    $self->clear_DbConn;
+    $self->DbConn->dbh;
+    
+    # If it comes back invalid again immediately:
+    if ($self->DbConn->invalid) {
+      $self->pause_for(5);
+      $self->clear_DbConn;
+      return undef;
+    }
+  }
+  
+  
+  $self->DbConn->dbh
+}
+
 
 
 
@@ -69,6 +101,8 @@ sub _middleware_call_coderef {
   
   return sub {
     my ($mw, $env) = @_;
+    return $mw->app->($env) if ($self->paused);
+    
     my $start = [gettimeofday];
     
     $self->{_current_request_row_id} = undef;
@@ -119,30 +153,13 @@ sub _middleware_call_coderef {
 
 
 
-has 'logDbh', is => 'ro', lazy => 1, default => sub {
-  my $self = shift;
-  
-  my $existed = (-f $self->log_db_file);
-  
-  my $dbh = DBI->connect(join(':','dbi','SQLite',$self->log_db_file));
-  
-  # super quick/dirty first time deploy:
-  unless($existed) {
-    $dbh->do($_) for (split(/;/,$self->_sqlite_ddl));
-  }
-
-  $dbh
-};
-
-
-
-
 
 sub _execute_around_coderef {
   my $self = shift;
   
   return sub {
     my ($orig, $pkg, $op, $ident, @args) = @_;
+    return $pkg->$orig($op, $ident, @args) if ($self->paused);
     
     my $meta = { op => $op, ident => $ident };
     
@@ -164,6 +181,8 @@ sub _dbh_execute_around_coderef {
   
   return sub {
     my ($orig, $pkg, @args) = @_;
+    return $pkg->$orig(@args) if ($self->paused);
+    
     my $start = [gettimeofday];
     
     my $logRow = {};
@@ -288,60 +307,6 @@ sub _format_for_trace {
   } @{$_[1] || []};
 }
 
-
-sub _sqlite_ddl {
-  my $self = shift;
-  
-  # Seed the auto inc based on the date/time in order to make it easier
-  # to merge databases later on -- this should mostly prevent PK overlap
-  my $seed_autoinc = time - 1620604718;
-  my $app_name = $self->application_name || 'unknown';
-
-join('',
-q~
-CREATE TABLE [db_info] (
-  [name]  varchar(64) primary key not null,
-  [value] varchar(1024) default null
-);
-INSERT INTO [db_info] VALUES ('schema_deploy_datetime', datetime('now'));
-INSERT INTO [db_info] VALUES ('application','~,$app_name,q~');
-INSERT INTO [db_info] VALUES ('DBIC::Violator::VERSION','~,$DBIC::Violator::VERSION,q~');
-INSERT INTO [db_info] VALUES ('seed_autoinc','~,$seed_autoinc,q~');
-INSERT INTO [db_info] VALUES ('db_filename','~,file($self->log_db_file)->basename,q~');
-INSERT INTO [db_info] VALUES ('db_directory','~,file($self->log_db_file)->parent->absolute,q~');
-
-CREATE TABLE [request] (
-  [id]                INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-  [start_ts]          integer NOT NULL,
-  [remote_addr]       varchar(16) NOT NULL,
-  [username]          varchar(32) DEFAULT NULL,
-  [uri]               varchar(512) NOT NULL,
-  [method]            varchar(8) NOT NULL,
-  [user_agent]        varchar(1024) DEFAULT NULL,
-  [referer]           varchar(512) DEFAULT NULL, 
-  [status]            char(3) DEFAULT NULL,
-  [res_length]        INTEGER DEFAULT NULL,
-  [res_content_type]  varchar(64) DEFAULT NULL,
-  [end_ts]            integer DEFAULT NULL,
-  [elapsed_ms]        INTEGER DEFAULT NULL  
-);
-INSERT INTO sqlite_sequence (name,seq) VALUES ('request',~,$seed_autoinc,q~);
-
-CREATE TABLE [query] (
-  [id] INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-  [unix_ts] integer NOT NULL,
-  [request_id] INTEGER DEFAULT NULL,
-  [dbi_driver] varchar(32) DEFAULT NULL,
-  [schema_class] varchar(128) default NULL,
-  [source_name] varchar(128) default NULL,
-  [operation] varchar(6) DEFAULT NULL,
-  [statement] text,
-  [elapsed_ms]  INTEGER NOT NULL, 
-  FOREIGN KEY ([request_id]) REFERENCES [request] ([id]) ON DELETE CASCADE ON UPDATE CASCADE
-);
-INSERT INTO sqlite_sequence (name,seq) VALUES ('query',~,$seed_autoinc,q~);
-
-~)}
 
 
 
