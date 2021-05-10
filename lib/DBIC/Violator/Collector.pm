@@ -280,18 +280,26 @@ sub _format_for_trace {
 }
 
 
-sub _sqlite_ddl {q~
-DROP TABLE IF EXISTS [db_info];
+sub _sqlite_ddl {
+  my $self = shift;
+  
+  # Seed the auto inc based on the date/time in order to make it easier
+  # to merge databases later on -- this should mostly prevent PK overlap
+  my $seed_autoinc = time - 1620604718;
+
+join('',
+q~
 CREATE TABLE [db_info] (
   [name]  varchar(64) primary key not null,
   [value] varchar(1024) default null
 );
-INSERT INTO [db_info] VALUES ('schema_deploy_timestamp', datetime('now'));
+INSERT INTO [db_info] VALUES ('schema_deploy_datetime', datetime('now'));
+INSERT INTO [db_info] VALUES ('DBIC::Violator::VERSION','~,$DBIC::Violator::VERSION,q~');
+INSERT INTO [db_info] VALUES ('seed_autoinc','~,$seed_autoinc,q~');
 
-DROP TABLE IF EXISTS [request];
 CREATE TABLE [request] (
   [id]                INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-  [start_ts]          datetime NOT NULL,
+  [start_ts]          integer NOT NULL,
   [remote_addr]       varchar(16) NOT NULL,
   [username]          varchar(32) DEFAULT NULL,
   [uri]               varchar(512) NOT NULL,
@@ -301,12 +309,11 @@ CREATE TABLE [request] (
   [status]            char(3) DEFAULT NULL,
   [res_length]        INTEGER DEFAULT NULL,
   [res_content_type]  varchar(64) DEFAULT NULL,
-  [end_ts]            datetime DEFAULT NULL,
+  [end_ts]            integer DEFAULT NULL,
   [elapsed_ms]        INTEGER DEFAULT NULL  
 );
+INSERT INTO sqlite_sequence (name,seq) VALUES ('request',~,$seed_autoinc,q~);
 
-
-DROP TABLE IF EXISTS [query];
 CREATE TABLE [query] (
   [id] INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
   [unix_ts] integer NOT NULL,
@@ -319,9 +326,9 @@ CREATE TABLE [query] (
   [elapsed_ms]  INTEGER NOT NULL, 
   FOREIGN KEY ([request_id]) REFERENCES [request] ([id]) ON DELETE CASCADE ON UPDATE CASCADE
 );
+INSERT INTO sqlite_sequence (name,seq) VALUES ('query',~,$seed_autoinc,q~);
 
-
-~}
+~)}
 
 
 

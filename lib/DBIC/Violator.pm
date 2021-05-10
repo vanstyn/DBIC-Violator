@@ -9,6 +9,7 @@ use DBIC::Violator::Collector;
 require DBIx::Class::Storage::DBI;
 use Class::MOP::Class;
 
+our $VERSION = '0.002';
 
 use RapidApp::Util ':all';
 
