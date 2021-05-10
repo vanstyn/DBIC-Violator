@@ -3,7 +3,7 @@ package DBIC::Violator::Collector::DbConn;
 use strict;
 use warnings;
 
-# ABSTRACT: Collector object for DBIC::Violator
+# ABSTRACT: Collector connection object for DBIC::Violator
 
 use Moo;
 use Types::Standard qw(:all);
@@ -31,6 +31,16 @@ has 'db_file', is => 'ro', isa => Str, lazy => 1, default => sub {
   my $pfx = $C->log_db_file_pfx;
   my $sfx = $C->log_db_file_sfx;
   my $num = 1;
+  
+  # We want to come after existing files, even if earlier inc files don't exist
+  for my $Child ($Dir->children) {
+    my $fn = $Child->basename;
+    if($fn =~ /^${pfx}(\d+)${sfx}$/) {
+      my $inc = $1 or next;
+      $inc =~ s/^0+//;
+      $num = $inc if ($inc > $num);
+    }
+  }
   
   my $fn = join('',$pfx,sprintf('%06s',$num),$sfx);
   $fn = join('',$pfx,sprintf('%06s',++$num),$sfx) while (-e $Dir->file($fn));
@@ -110,7 +120,8 @@ sub _sqlite_ddl {
   
   # Seed the auto inc based on the date/time in order to make it easier
   # to merge databases later on -- this should mostly prevent PK overlap
-  my $seed_autoinc = time - 1620604718;
+  #my $seed_autoinc = time - 1620604718;
+  my $seed_autoinc = 0; # because of threads, this is pointless
   my $app_name = $self->Collector->application_name || 'unknown';
 
 join('',
