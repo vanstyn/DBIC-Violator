@@ -52,6 +52,10 @@ has 'sqlat', is => 'ro', default => sub {
 };
 
 
+has 'username_from_res_header', is => 'rw', isa => Maybe[Str], default => sub { undef };
+
+
+
 sub BUILD {
   my $self = shift;
   $self->logDbh;
@@ -101,6 +105,10 @@ sub _middleware_call_coderef {
         end_ts            => scalar $end->[0],
         elapsed_ms        => scalar int(1000 * tv_interval($start,$end))
       };
+      
+      if (my $user_header = $self->username_from_res_header) {
+        $updates->{username} = $Res->header($user_header);
+      }
       
       $self->{_current_request_row_id} = undef;
       $self->_do_update_request_row_by_id( $id => $updates );

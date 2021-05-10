@@ -11,6 +11,9 @@ use Class::MOP::Class;
 
 our $VERSION = '0.002';
 
+our $INITIALIZED = 0;
+our $COLLECTOR_INSTANCE = undef;
+
 use RapidApp::Util ':all';
 
 sub import {
@@ -22,9 +25,6 @@ sub import {
   return 1;
 }
 
-
-our $INITIALIZED = 0;
-our $COLLECTOR_INSTANCE = undef;
 
 
 sub collector {
