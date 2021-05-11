@@ -10,7 +10,7 @@ require DBIx::Class::Storage::DBI;
 use Class::MOP::Class;
 use Try::Tiny;
 
-our $VERSION = '0.004';
+our $VERSION = '0.900';
 
 our $INITIALIZED = 0;
 our $COLLECTOR_INSTANCE = undef;
