@@ -311,3 +311,38 @@ sub _format_for_trace {
 
 
 1;
+
+
+__END__
+
+=head1 NAME
+
+DBIC::Violator::Collector - Collector object for DBIC::Violator
+
+=head1 DESCRIPTION
+
+This is an internal object class used by L<DBIC::Violator> and should not be used directly.
+
+=head1 SEE ALSO
+
+=over
+
+=item * 
+
+L<DBIC::Violator>
+
+=back
+
+
+=head1 AUTHOR
+
+Henry Van Styn <vanstyn@cpan.org>
+
+=head1 COPYRIGHT AND LICENSE
+
+This software is copyright (c) 2021 by IntelliTree Solutions llc.
+
+This is free software; you can redistribute it and/or modify it under
+the same terms as the Perl 5 programming language system itself.
+
+=cut
