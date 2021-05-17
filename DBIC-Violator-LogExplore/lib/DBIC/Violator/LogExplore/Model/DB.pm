@@ -50,6 +50,9 @@ __PACKAGE__->config(
             undo => { showtext => 1 }
           }
         }
+      },
+      Query => {
+        include_colspec => ['*','*.*']
       }
     },
 
