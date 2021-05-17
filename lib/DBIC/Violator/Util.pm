@@ -34,6 +34,11 @@ sub _merge_sqlite_files {
   die "no valid db files found in $db_dir" unless(scalar(@db_files) > 0);
   
   my $dbh = &_dbi_connect_sqlite_file($db_file);
+  &__dbh_index_everything_on_table($dbh,'query');
+  &__dbh_index_everything_on_table($dbh,'request');
+  $dbh->disconnect;
+  
+  print "\n";
   
   &_left_combine_sqlite_dbs($db_file,$_) for (@db_files);
   
@@ -98,6 +103,30 @@ sub __dbh_max_col_in_table {
     or die "Failed to identify max($col) in $table";
     
   $max
+}
+
+
+
+sub __dbh_index_everything_on_table {
+  $_[0] eq __PACKAGE__ and shift;
+  my ($dbh, $table) = @_;
+  
+  my $arr = $dbh->selectall_arrayref(
+    "pragma table_info('$table')",
+    { Slice => {} }
+  );
+  
+  my @cols = ();
+  for my $info (@$arr) {
+    next if ($info->{pk});
+    push @cols, $info->{name};
+  }
+  
+  &__dbh_do($dbh,join('',
+    "CREATE INDEX IF NOT EXISTS [idx_",$table,'_',$_,'] ',
+    'ON [',$table,'] ([',$_,'])'
+  )) for (@cols);
+  
 }
 
 
