@@ -44,27 +44,35 @@ sub _merge_sqlite_files {
 }
 
 
+
 sub _left_combine_sqlite_dbs {
   $_[0] eq __PACKAGE__ and shift;
   my ($l_db, $r_db) = @_;
   -f $l_db && -f $r_db or die "must supply valid left and right db args";
   
-  print "\n\n  -> merge $r_db into $l_db";
+  print "\n\n --> merge $r_db into $l_db";
+  
+  my $l_dbh = &_dbi_connect_sqlite_file($l_db);
+  my $r_dbh = &_dbi_connect_sqlite_file($r_db);
+  
+  my $max_qId = &__dbh_max_col_in_table($l_dbh,'[id]','[query]');
+  my $rmax_qId = &__dbh_max_col_in_table($r_dbh,'[id]','[query]');
+  $max_qId = $rmax_qId if ($rmax_qId > $max_qId);
+  
+  my $max_rId = &__dbh_max_col_in_table($l_dbh,'[id]','[request]');
+  my $rmax_rId = &__dbh_max_col_in_table($r_dbh,'[id]','[request]');
+  $max_rId = $rmax_rId if ($rmax_rId > $max_rId);
+  
+  &__dbh_do($r_dbh => 'PRAGMA foreign_keys = ON');
+  &__dbh_do($r_dbh => "UPDATE [query]   SET [id] = [id] + $max_qId");
+  &__dbh_do($r_dbh => "UPDATE [request] SET [id] = [id] + $max_rId");
+  
+  $l_dbh->disconnect;
+  $r_dbh->disconnect;
   
   my $dbh = &_dbi_connect_sqlite_file($l_db);
   
   &__dbh_do($dbh => "ATTACH DATABASE '$r_db' AS r_db");
-  
-  my $max_qId = &__dbh_max_col_in_table($dbh,'[id]','[query]');
-  my $rmax_qId = &__dbh_max_col_in_table($dbh,'[id]','[r_db].[query]');
-  $max_qId = $rmax_qId if ($rmax_qId > $max_qId);
-  
-  my $max_rId = &__dbh_max_col_in_table($dbh,'[id]','[request]');
-  my $rmax_rId = &__dbh_max_col_in_table($dbh,'[id]','[r_db].[request]');
-  $max_rId = $rmax_rId if ($rmax_rId > $max_rId);
-  
-  &__dbh_do($dbh => "UPDATE [r_db].[query]   SET [id] = [id] + $max_qId");
-  &__dbh_do($dbh => "UPDATE [r_db].[request] SET [id] = [id] + $max_rId");
   &__dbh_do($dbh => "INSERT INTO [request] SELECT * FROM [r_db].[request]");
   &__dbh_do($dbh => "INSERT INTO [query]   SELECT * FROM [r_db].[query]");
   
@@ -75,7 +83,6 @@ sub _left_combine_sqlite_dbs {
   print "\n";
 
 }
-
 
 
 sub __dbh_max_col_in_table {
@@ -98,7 +105,7 @@ sub __dbh_do {
   $_[0] eq __PACKAGE__ and shift;
   my ($dbh, $sql) = @_;
   
-  print "\n   > $sql";
+  print "\n    > $sql";
   $dbh->do($sql) or die "\nerrored";
 
 }
